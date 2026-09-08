@@ -20,7 +20,7 @@ from langgraph.checkpoint.memory import MemorySaver
 # True 로 바뀌면 '질문 > 도구 호출 > 답변' 과정 전체 흐름을 순서대로 출력한다.
 # 처음에는 False로 두고, 최종 답변만 보고, 자세히 보고 싶을 때 True로 켠다. 
 SHOW_FULL = False
-SKILLS_NAMESPACE = ("skills-test")
+SKILLS_NAMESPACE = ("skills-test",)
 
 ROOT = Path(__file__).resolve().parent
 load_dotenv(ROOT / ".env")
@@ -91,17 +91,20 @@ with PostgresStore.from_conn_string(conn_string) as store:
     skills_dir = ROOT / "skills"
     files_to_upload =[]
 
-    # 해당 경로에 있는 모든 SKILL.md 파일을 찾아서 store에 넣는다.
-    for skill_md in skills_dir.rglob("SKILL.md"):
-        # skill_md 예: /.../skills/weather-lookup/SKILL.md
-        rel = skill_md.relative_to(skills_dir).as_posix() # 짧은 주소로 정리: weather-lookup/SKILL.md
+    # SKILL.md뿐 아니라 스크립트(.py) 등 skills 폴더 하위의 모든 파일을 백업 목적으로 store에 넣는다.
+    for skill_file in skills_dir.rglob("*"):
+        if not skill_file.is_file():
+            continue
 
-        store_path= f"/skills/{rel}"  # skills/weather-lookup/SKILL.md
+        # skill_file 예: /.../skills/prime-check/scripts/is_prime.py
+        rel = skill_file.relative_to(skills_dir).as_posix() # 짧은 주소로 정리: prime-check/scripts/is_prime.py
 
-        content = skill_md.read_text(encoding="utf-8") # 글자를 바이트로 변환하기 전에, 먼저 UTF-8로 읽는다. (한글 깨짐 방지)
+        store_path= f"/skills/{rel}"  # skills/prime-check/scripts/is_prime.py
 
-        # (경로, 바이트로 변환한 내용) 쌍으로 목록에 담는다. 
-        files_to_upload.append((store_path, content.encode("utf-8"))) # 글자를 컴퓨터 저장용 형태(바이트)로 변환, 주소라벨 붙여서 목록에 쌓기 
+        content = skill_file.read_text(encoding="utf-8") # 글자를 바이트로 변환하기 전에, 먼저 UTF-8로 읽는다. (한글 깨짐 방지)
+
+        # (경로, 바이트로 변환한 내용) 쌍으로 목록에 담는다.
+        files_to_upload.append((store_path, content.encode("utf-8"))) # 글자를 컴퓨터 저장용 형태(바이트)로 변환, 주소라벨 붙여서 목록에 쌓기
         print(f"[seed] store에 심음: {store_path}")
 
     # 추가 3. backend를 StoreBackend로 바꾼다. (기존 FilesystemBackend는 디스크에서 바로 읽는다.)
