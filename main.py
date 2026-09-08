@@ -5,10 +5,15 @@
 
 
 import os
+from pathlib import Path
 from dotenv import load_dotenv
 from deepagents import create_deep_agent
+from deepagents.backends import StoreBackend
+from langgraph.store.memory import InMemoryStore
 from langchain_openai import ChatOpenAI
-from deepagents.backends.filesystem import FilesystemBackend
+from langgraph.checkpoint.memory import MemorySaver
+# from deepagents.backends.filesystem import FilesystemBackend
+
 
 
 # True 로 바뀌면 '질문 > 도구 호출 > 답변' 과정 전체 흐름을 순서대로 출력한다.
@@ -57,16 +62,54 @@ model = ChatOpenAI(
     api_key=os.environ.get("LLM_API_KEY") or "EMPTY",
 )
 
-# 1. SKILL 폴더 기준 경로 현재 폴더를 root_dir로 지정한다. 파일 시스템 백엔드 생성 
-backend = FilesystemBackend(root_dir=".")
+# 추가 1. store 객체 생성
+# InMemoryStore = 프로그램이 도는 동안만 메모리에 존재하는 가짜 DB (임시 빈 창고)
+# 프로그램이 끝나면 사라진다.
+store = InMemoryStore()
+
+
+# 추가 2. 디스크의 SKILL.md 파일들을 store에 심는다.
+# 디스크 방식은 폴더에 파일이 있으면 끝이지만, store 방식은 파일을 먼저 DB안에 넣어줘야 Agent가 읽을 수 있다.
+# rglob("SKILL.md") : 하위 폴더까지 뒤져서 SKILL.md를 전부 찾는다.
+#                    (r = recursive 재귀, glob = 패턴으로 파일 찾기)
+skills_dir = Path("./skills")
+files_to_upload =[]
+
+# 해당 경로에 있는 모든 SKILL.md 파일을 찾아서 store에 넣는다.
+for skill_md in skills_dir.rglob("SKILL.md"):
+    # skill_md 예: /.../skills/weather-lookup/SKILL.md
+    rel = skill_md.relative_to(skills_dir).as_posix() # 짧은 주소로 정리: weather-lookup/SKILL.md
+
+    store_path= f"/skills/{rel}"  # skills/weather-lookup/SKILL.md
+
+    content = skill_md.read_text(encoding="utf-8") # 글자를 바이트로 변환하기 전에, 먼저 UTF-8로 읽는다. (한글 깨짐 방지)
+
+    # (경로, 바이트로 변환한 내용) 쌍으로 목록에 담는다. 
+    files_to_upload.append((store_path, content.encode("utf-8"))) # 글자를 컴퓨터 저장용 형태(바이트)로 변환, 주소라벨 붙여서 목록에 쌓기 
+    print(f"[seed] store에 심음: {store_path}")
+
+# 추가 3. backend를 StoreBackend로 바꾼다. (기존 FilesystemBackend는 디스크에서 바로 읽는다.)
+# namespace = store 안에서 어느 서랍에서 넣고 뺄지 정하는 이름표 
+# lambda _rt: (..._)는 런타임 정보(_rt)를 받지만, 안쓰고 항상 이 서랍 이라는 뜻.
+backend = StoreBackend(
+    namespace=lambda _rt: ("skill-test", ),
+    store=store,
+)
+
+# 추가 4. 위에서 모아둔 SKILL.md 파일들을 실제로 store에 업로드한다. 
+backend.upload_files(files_to_upload)
+
 
 # 2. Agent 생성. system_prompt는 Agent의 역할을 정의한다. skills는 Agent가 사용할 수 있는 스킬 경로를 지정한다.
 agent = create_deep_agent(
     model=model,
     system_prompt="너는 개발자를 돕는 조수야.",
     backend=backend,
+    store=store,
     skills=["/skills"],
+    # checkpointer=MemorySaver(),
 )
+
 
 # 3. 테스트 케이스 정의
 test_cases = [
