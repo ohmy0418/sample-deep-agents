@@ -121,8 +121,8 @@ def seed_skills_to_db(backend: StoreBackend, skills_dir: Path) -> None:
 
 
 # ─────────────────────────────────────────────────────────────────
-# 3. 전송 로직 — DB 에서 script 를 읽어 실행 공간 경로로 바꾼다
-#    ※ 여기 두 함수는 skills/ 디스크 폴더를 '절대' 참조하지 않는다.
+# 3. 전송 로직 — DB 에서 script 를 읽는다
+#    ※ 이 함수는 skills/ 디스크 폴더를 '절대' 참조하지 않는다.
 #      그래야 workspace 에 파일이 생겼을 때 출처가 DB 뿐임이 증명된다.
 # ─────────────────────────────────────────────────────────────────
 
@@ -154,51 +154,43 @@ def fetch_scripts_from_db(store, namespace: tuple) -> list[tuple[str, bytes]]:
     return scripts
 
 
-def to_disk_path(workspace: Path, store_key: str) -> Path:
-    """가상 경로를 workspace 안의 실제 파일 경로로 바꾼다.
-
-        /skills/prime-check/scripts/is_prime.py
-     -> <workspace>/skills/prime-check/scripts/is_prime.py
-
-    앞 슬래시만 떼면 SKILL.md 가 지시하는 상대경로
-    (python skills/prime-check/scripts/is_prime.py)와 정확히 맞아떨어진다.
-    덕분에 SKILL.md 를 고칠 필요가 없다.
-
-    C 계획에서는 이 함수가 교체된다. (디스크 경로 대신 Interpreter 페이로드)
-    """
-    return workspace / store_key.lstrip("/")
-
-
 # ─────────────────────────────────────────────────────────────────
 # 4. 미들웨어 — Agent 실행 '직전'에 전송을 수행한다
 # ─────────────────────────────────────────────────────────────────
 
 class ScriptTransferMiddleware(AgentMiddleware):
-    """before_agent 훅에서 DB 의 script 를 workspace 로 복사하는 미들웨어.
+    """before_agent 훅에서 DB 의 script 를 실행 공간으로 전송하는 미들웨어.
 
-    복사는 backend.upload_files() 가 아니라 Path.write_bytes() 로 직접 한다.
-    CompositeBackend 는 route 에 걸리는 경로를 StoreBackend(DB)로 보내버리므로,
-    upload_files 로 보내면 디스크가 아니라 DB 로 되돌아가기 때문이다.
+    전송은 backend.upload_files() 로 한다. Path.write_bytes() 로 직접 쓰는 방법도
+    동작하지만, upload_files() 가 backend 가 정한 정식 전송 통로다.
+    (BaseSandbox 문서: "Write delegates content transfer to upload_files()")
+    실행 공간이 다른 컨테이너로 바뀌면 직접 쓰기는 불가능해지고 이 방식만 남는다.
+
+    경로는 DB 키(/skills/...)를 그대로 넘긴다.
+      - route("/db/")에 안 걸리므로 default(LocalShellBackend) 로 간다.
+      - LocalShellBackend 가 root_dir 기준으로 <workspace>/skills/... 에 만들어 준다.
+      - 이 위치가 SKILL.md 의 실행 명령(python skills/...)과 정확히 맞아떨어져서
+        SKILL.md 를 고칠 필요가 없다.
     """
 
     # 재료 보관 - 미들웨어를 만들 때 3가지를 받아서 기억해둔다.
-    def __init__(self, store, namespace: tuple, workspace: Path) -> None:
+    def __init__(self, store, namespace: tuple, backend) -> None:
         super().__init__()
-        self.store = store # DB 창구 
+        self.store = store # DB 창구
         self.namespace = namespace # DB의 어느 서랍인지
-        self.workspace = workspace # 파일을 어디에 쓸지 
+        self.backend = backend # 파일을 어디로 보낼지 (전송 통로)
 
     # 실제로 하는 일 - agent.invoke() 직전에 자동 호출이 됨. (deepagents가 자동으로 먼저 부른다. 우리가 호출하지 않는다.)
     def before_agent(self, state, runtime) -> None:
         """Agent 가 돌기 직전에 한 번 호출된다."""
         scripts = fetch_scripts_from_db(self.store, self.namespace) # DB에서 .py 가져오기
 
-        for store_key, content_bytes in scripts:
-            disk_path = to_disk_path(self.workspace, store_key) # 어디에 쓸지 경로 계산
-            disk_path.parent.mkdir(parents=True, exist_ok=True) # 폴더 없으면 만든다.
-            disk_path.write_bytes(content_bytes) # 파일로 쓴다.
+        # fetch 결과가 [(경로, bytes)] 라 upload_files 인자 형식과 그대로 맞는다.
+        # 폴더 생성·파일 쓰기는 backend 가 알아서 처리한다.
+        self.backend.upload_files(scripts)
 
-            print(f"  [전송] DB {store_key}  ->  {disk_path}")
+        for store_key, _ in scripts:
+            print(f"  [전송] DB {store_key}  ->  실행 공간")
 
         print(f"[2단계] 전송 완료 — script {len(scripts)}개")
         return None  # state 를 바꾸지 않으므로 None
@@ -312,6 +304,8 @@ def run_tests(agent) -> None:
 # 7. 실행부
 # ─────────────────────────────────────────────────────────────────
 
+# 이 파일을 직접 실행할 때만 아래를 돌려라. python skills_exec_shell.py 으로 실행하면 돌아가고, 
+# 다른 파일에서 import skill_exec_shell 로 불러다 쓸 때는 안돌아간다. 
 if __name__ == "__main__":
     # ── [0-2단계] 빈 임시 폴더 생성 ──
     # 자동 삭제하지 않는다. 실패했을 때 안을 들여다봐야 하기 때문이다.
@@ -344,7 +338,7 @@ if __name__ == "__main__":
             model=model,
             backend=backend,
             skills=[SKILL_DISCOVERY_PATH],
-            middleware=[ScriptTransferMiddleware(store, SKILLS_NAMESPACE, workspace)],
+            middleware=[ScriptTransferMiddleware(store, SKILLS_NAMESPACE, backend)],
             checkpointer=MemorySaver(),
         )
 
