@@ -10,7 +10,7 @@
 | 목표 릴리스 | MVP |
 | 책임자 | Generic Agent 담당 |
 | 상태 | 초안 |
-| 개정일 | 2026-09-28 |
+| 개정일 | 2026-09-30 |
 
 ---
 
@@ -129,7 +129,7 @@ Agent Framework 실행 계층은 Agent Execution Orchestrator가 실행 구성�
 
 - Sandbox는 DB 접속 문자열, 객체 스토리지 장기 자격, 모델 제공자 자격을 갖지 않는다. 데이터 조회와 저장은 외부 제공 인터페이스로 한다 (설계서 1.1·2.5.2, Governance 아키텍처 §2.1).
 - Sandbox는 인바운드 포트를 열지 않는다. 실행 대상은 Downward API가 투영한 파일로만 받는다 (Governance 아키텍처 §2.2, API §7.8).
-- Sandbox가 갖는 자격은 Job 범위 단기 토큰 하나이며, Message Queue 자격으로 닿는 범위는 공통 Event Queue 하나다 (Governance 아키텍처 §2.1).
+- Sandbox가 갖는 자격은 Job 범위 단기 토큰 하나이며(단, MVP 동안 AI Gateway(LiteLLM) 호출 키를 실행 환경변수로 받는다 — GAGENT-BR-01-04, GAGENT-DEP-17), Message Queue 자격으로 닿는 범위는 공통 Event Queue 하나다 (Governance 아키텍처 §2.1).
 - 실행 구성은 Snapshot 1건으로 고정한다. 실행 중 정의 원본을 다시 읽지 않는다 (설계서 2.3.3).
 - Snapshot 문서 크기 상한은 256 KiB이며 Skill 본문을 포함한 전체 문서가 대상이다. 상한 검사는 Snapshot 조립 단계가 한다 (설계서 2.3.3, Governance API §10.4).
 - Skill 본문을 Sandbox 디스크 파일로 만들지 않는다 (설계서 4).
@@ -206,7 +206,7 @@ Agent Framework 실행 계층은 Agent Execution Orchestrator가 실행 구성�
 사전 조건:
 
 - Worker가 기동해 `job_id` 파일을 감시하고 있다. 할당 전에는 파일이 비어 있다.
-- Agent Resource Manager·AI Gateway 접근 경로와 Job 범위 단기 토큰이 실행 환경 설정으로 준비되어 있다.
+- Agent Resource Manager·AI Gateway 접근 경로, AI Gateway(LiteLLM) 호출 키와 Job 범위 단기 토큰이 실행 환경 설정으로 준비되어 있다.
 - 해당 Job의 Snapshot이 기록되어 있다.
 
 기본 흐름:
@@ -214,7 +214,7 @@ Agent Framework 실행 계층은 Agent Execution Orchestrator가 실행 구성�
 1. Runtime Manager가 Sandbox를 할당하면 `job_id` 파일이 채워지고, 서비스가 그 값을 실행 대상으로 확보한다.
 2. 서비스가 `job_id`로 Agent Resource Manager에 Snapshot을 요청해 받는다.
 3. 서비스가 Snapshot의 지시문·모델·실행 제한·Skill·Tool을 내부 설정으로 해석한다.
-4. 서비스가 모델 식별자와 호출 옵션으로 AI Gateway에 연결되는 모델 호출 구성을 준비한다.
+4. 서비스가 모델 식별자로 AI Gateway의 모델 엔드포인트 정보를 조회해 활성 여부와 실제 모델을 확인하고, 호출 옵션과 함께 AI Gateway에 연결되는 모델 호출 구성을 준비한다.
 5. 서비스가 지시문·모델·기본 Tool을 적용해 Deep Agent를 조립하고, Snapshot의 질문을 사용자 입력으로 전달해 실행한다.
 6. Deep Agent가 AI Gateway에 추론을 요청하고 Tool 호출과 관찰을 반복해 답변을 만든다.
 7. 실행이 끝나면 서비스가 전체 답변을 Agent Resource Manager의 저장 인터페이스로 저장 요청하고 저장 완료 응답을 받는다.
@@ -267,11 +267,11 @@ sequenceDiagram
 | GAGENT-FR-01-13 | 서비스는 Snapshot이 지정한 모델·옵션·자원을 쓸 수 없을 때 다른 버전이나 다른 값으로 대체하지 않아야 한다. | GAGENT-BR-01-03 |
 | GAGENT-FR-01-14 | 서비스는 Tool 호출 오류를 그 호출의 결과로 모델에 돌려주고 실행을 이어 가야 한다. | 대체 흐름 |
 | GAGENT-FR-01-15 | 서비스는 실행 중 모델 호출이 실패하면 오류 유형에 따라 재시도하고, 복구할 수 없으면 실행을 실패로 끝내야 한다. | GAGENT-BR-01-08 |
-| GAGENT-FR-01-16 | 서비스는 실행이 실패로 끝나면 그때까지 생성된 답변을 저장하지 않아야 한다. | GAGENT-BR-01-05 |
+| GAGENT-FR-01-16 | 서비스는 실행이 실패로 끝나면 그때까지 생성된 답변을 저장하지 않아야 한다. 빈 답변 실패는 GAGENT-BR-01-16을 따른다. | GAGENT-BR-01-05, GAGENT-BR-01-16 |
 | GAGENT-FR-01-17 | 서비스는 모델 응답의 사용량 정보로 입력·출력 토큰을 실행 단위로 집계해야 한다. | 기본 흐름 6 |
 | GAGENT-FR-01-18 | 서비스는 사용량 정보가 없는 모델 응답을 0으로 집계하지 않고 미확인 호출로 구분해야 한다. | 대체 흐름 |
 | GAGENT-FR-01-19 | 서비스는 해석한 내부 설정과 Snapshot 내용을 실행 중 메모리에만 두고 Sandbox 디스크에 기록하지 않아야 한다. | GAGENT-BR-01-02 |
-| GAGENT-FR-01-20 | 서비스는 Tool 호출 없이 끝난 마지막 모델 응답의 텍스트를 전체 답변으로 저장해야 한다. | GAGENT-BR-01-11 |
+| GAGENT-FR-01-20 | 서비스는 Tool 호출 없이 끝난 마지막 모델 응답의 텍스트를 전체 답변으로 저장해야 한다. 그 텍스트가 비어 있으면(공백만 있는 경우 포함) 재시도하지 않고 실행을 실패로 처리하며, 모델 텍스트 대신 재질문 안내문을 실패 결과로 저장해야 한다. | GAGENT-BR-01-11, GAGENT-BR-01-16, GAGENT-EDGE-01-15 |
 | GAGENT-FR-01-21 | 서비스는 재기동 뒤 이미 감지했던 `job_id`를 다시 감지하면 그 Job의 실행을 다시 시작하지 않아야 한다. | GAGENT-EDGE-01-11 |
 | GAGENT-FR-01-22 | 서비스는 Job 범위 단기 토큰을 재발급하지 않고, 만료로 요청이 거부되면 그 단계의 실패로 처리해야 한다. | GAGENT-BR-01-12 |
 
@@ -280,8 +280,8 @@ sequenceDiagram
 - GAGENT-BR-01-01: 실행 구성의 근거는 조회한 Snapshot 1건이다. 실행 도중 Agent·Skill·Tool의 새 버전이 등록되어도 진행 중인 실행에 반영하지 않는다 (설계서 2.3.3).
 - GAGENT-BR-01-02: 해석한 설정은 실행 중 메모리에 두고 다음 구성 단계로 넘긴다. 실제 연결과 자원 준비는 이후 단계에서 한다 (설계서 3.1).
 - GAGENT-BR-01-03: 모델 식별자와 호출 옵션은 Snapshot에 고정된 값을 쓴다. 사용할 수 없는 모델이나 지원하지 않는 옵션을 다른 값으로 대체하지 않는다 (설계서 2.5.2).
-- GAGENT-BR-01-04: 모델 제공자 자격은 AI Gateway가 관리하며 Sandbox에 두지 않는다. Sandbox가 AI Gateway에 접근하는 인증 정보는 모델 제공자 자격과 구분한다 (설계서 2.5.2).
-- GAGENT-BR-01-05: 결과 계층의 완료 근거는 전체 답변 저장 완료 응답이다. 실행이 실패로 끝나면 그때까지의 답변을 저장하지 않는다 (Governance 개요 §5.4, 인터뷰 확정 사항).
+- GAGENT-BR-01-04: 모델 제공자 자격은 AI Gateway가 관리하며 Sandbox에 두지 않는다. Sandbox가 AI Gateway에 접근하는 인증 정보는 모델 제공자 자격과 구분한다 (설계서 2.5.2). 이번 릴리스에서는 AI Gateway(LiteLLM) 호출 키를 Sandbox 실행 환경변수로 받는다. 이 키는 모델 제공자 자격이 아니며, 로그·오류 메시지·파일에 남기지 않는다 (인터뷰 확정 사항, GAGENT-DEP-17).
+- GAGENT-BR-01-05: 결과 계층의 완료 근거는 전체 답변 저장 완료 응답이다. 실행이 실패로 끝나면 그때까지의 답변을 저장하지 않는다 (Governance 개요 §5.4, 인터뷰 확정 사항). 예외는 빈 답변 실패 하나이며, 모델 텍스트가 아닌 재질문 안내문을 실패 결과로 저장한다(GAGENT-BR-01-16).
 - GAGENT-BR-01-06: 기본 Tool은 파일 목록 조회·읽기·작성·수정·경로 패턴 검색·내용 검색 여섯 가지를 노출하고, 셸 명령 실행과 Subagent 위임은 노출하지 않는다. 파일·디렉터리 삭제와 작업 계획 목록 관리의 제공 여부는 미정이다 (설계서 3.3.2).
 - GAGENT-BR-01-07: 모델 호출 구성과 실제 추론 요청을 구분한다. 추론 요청은 Deep Agent 실행 중에만 보낸다 (설계서 2.5.2).
 - GAGENT-BR-01-08: 모델 호출 재시도 횟수, 호출 제한 시간, 재시도 대상 오류 유형은 AI Gateway 연동 규격에서 정한다. 정해질 때까지 미정이다 (설계서 2.5.3).
@@ -291,6 +291,8 @@ sequenceDiagram
 - GAGENT-BR-01-12: 서비스는 Job 범위 단기 토큰을 재발급하지 않는다. 토큰 수명은 Runtime Manager의 최대 실행 시간보다 길게 발급되어야 하며(GAGENT-DEP-08), 만료로 요청이 거부되면 그 단계의 실패로 처리한다 (인터뷰 확정 사항).
 - GAGENT-BR-01-13: 실행 단위로 집계한 사용량은 전체 답변 저장 요청의 `usage`로 전달한다. 미확인 호출이 1건이라도 있으면 입력·출력 토큰은 `null`로 보내고, 측정 기준이 정해지지 않은 `iterations`도 `null`로 보낸다 (설계서 2.5.3, 인터뷰 확정 사항).
 - GAGENT-BR-01-14: 감지한 `job_id`와 종료 이벤트 발행 사실(GAGENT-BR-02-07)은 Worker 재기동 뒤에도 남는 기록으로 둔다. 이 기록에는 Snapshot 내용을 담지 않는다(GAGENT-FR-01-19).
+- GAGENT-BR-01-15: 모델 엔드포인트 정보 조회 응답의 실제 모델은 정확히 1개여야 한다. 조회 실패, `status` 거짓, JSON이 아닌 응답, 엔드포인트 비활성, 실제 모델 0개 또는 2개 이상은 모델 호출 구성 실패로 처리한다. 성공 상태 코드만으로 성공을 판정하지 않는다 — 없는 모델 값에도 200과 HTML이 올 수 있다 (인터뷰 확정 사항).
+- GAGENT-BR-01-16: 마지막 모델 응답의 텍스트가 비어 있으면(공백만 있는 경우 포함) 모델을 다시 호출하지 않고 실행을 실패로 처리한다. 전체 답변 저장 요청은 `outcome`을 `FAILED`로, 결과 내용을 재질문 안내문 「답변을 만들지 못했습니다. 질문을 조금 바꿔서 다시 입력해 주세요.」로, 종료 사유를 `error`로, 오류 코드를 `model_error`로, 세부 사유를 `empty_answer`로 보낸다. 모델 응답의 종료 사유는 로그에 남기고 모델 텍스트는 남기지 않는다. 안내 문구는 서비스 한 곳에 두고, 오류 세부 정보의 형식은 Agent Resource Manager 확인 뒤 확정한다 (Governance API §11.2, 인터뷰 확정 사항).
 
 #### 예외와 경계 조건
 
@@ -309,6 +311,8 @@ sequenceDiagram
 | GAGENT-EDGE-01-11 | Worker가 재기동해 이미 감지했던 `job_id`를 다시 감지한다 | 실행을 다시 시작하지 않는다. 실패 알림은 GAGENT-FR-02-12를 따른다 | 모델 추론 요청 0건, 전체 답변 저장 요청 0건이 추가된다 | GAGENT-FR-01-21 |
 | GAGENT-EDGE-01-12 | 실행이 Snapshot의 실행 제한 값을 넘긴다 | 미정 | 미정 | GAGENT-BR-01-09 |
 | GAGENT-EDGE-01-13 | 실행 중 Job 범위 단기 토큰이 만료되어 요청이 거부된다 | 토큰을 재발급하지 않고, 거부된 요청을 그 단계의 실패로 처리한다 | 토큰 재발급 요청 0건, 실행이 실패로 끝난다 | GAGENT-FR-01-22 |
+| GAGENT-EDGE-01-14 | 모델 엔드포인트 정보 조회 응답이 JSON이 아니거나, `status`가 거짓이거나, 실제 모델이 정확히 1개가 아니다 | Deep Agent를 조립하지 않는다 | 모델 추론 요청 0건, 전체 답변 저장 요청 0건 | GAGENT-FR-01-11, GAGENT-BR-01-15 |
+| GAGENT-EDGE-01-15 | 마지막 모델 응답의 텍스트가 비어 있다(공백만 있는 경우 포함) | 재시도하지 않고 실행을 실패로 처리한다. 재질문 안내문을 `FAILED` 결과로 저장하고, 실패 단계는 Agent 실행이며, 모델 응답의 종료 사유를 로그에 남긴다 | 모델 재호출 0건, `FAILED` 결과 저장 1건(내용은 안내문, 오류 코드 `model_error`) | GAGENT-FR-01-20, GAGENT-BR-01-16 |
 
 #### 필요한 데이터와 상태
 
@@ -325,7 +329,7 @@ sequenceDiagram
 |---|---|---|---|---|---|---|
 | GAGENT-IF-01-01 | 사용 | Runtime Manager(Kubernetes Downward API 경유) | 할당된 Sandbox에 `job_id` 전달 | 실행할 Job을 식별한다 | 파일이 비어 있으면 실행하지 않고 감시를 계속한다 | Governance API §7.7·§7.8 |
 | GAGENT-IF-01-02 | 사용 | Agent Resource Manager | `job_id` 기준 Snapshot 조회 | 실행 구성과 질문 1건을 받는다 | Deep Agent를 조립하지 않고 준비 실패로 끝낸다 | 설계서 2.3.2와 응답 최상위 `question`·`assistant_message_id`·`thread_id` (인터뷰 확정 사항). Governance API §7.1 갱신 필요 |
-| GAGENT-IF-01-03 | 사용 | AI Gateway | 추론 요청, 스트리밍 응답, Tool 호출 형식, 사용량 | 지정한 모델의 응답과 사용량을 받는다 | 재시도 후 복구할 수 없으면 실행을 실패로 끝낸다 | 모델 엔드포인트 정보 조회로 호출 주소를 얻고 LiteLLM(OpenAI 호환, 인증 없음)에 `model_id`를 모델 값으로 보낸다 (인터뷰 확정 사항). 주소는 이 문서에 적지 않는다 |
+| GAGENT-IF-01-03 | 사용 | AI Gateway | 추론 요청, 스트리밍 응답, Tool 호출 형식, 사용량 | 지정한 모델의 응답과 사용량을 받는다 | 재시도 후 복구할 수 없으면 실행을 실패로 끝낸다 | 모델 엔드포인트 정보 조회(`GET ?id=<model_id>`, 응답 `{status, data}`)로 활성 여부·실제 모델·기본 호출 주소(`proxyBaseUrl`)를 얻고, LiteLLM(OpenAI 호환)에 실제 모델의 `realModels[].modelName`을 모델 값으로 보낸다. 로컬 실행에서는 기준 주소를 실행 환경 설정값으로 덮어쓴다. 호출 키는 실행 환경변수로 받는다(MVP 한정, GAGENT-DEP-17) (인터뷰 확정 사항). 주소와 키는 이 문서에 적지 않는다 |
 | GAGENT-IF-01-04 | 사용 | Agent Resource Manager | 전체 답변 저장 | 저장 완료 응답을 받는다 | 재시도 한도를 넘기면 실행을 실패로 끝낸다 | Governance API §7.3. `message_id`는 Snapshot의 `assistant_message_id` (인터뷰 확정 사항). `result_hash`는 이번 릴리스에서 계산하지 않고 `null`로 보낸다 (인터뷰 확정 사항) |
 
 #### 기술 영향 범위
@@ -335,7 +339,7 @@ sequenceDiagram
 | 영향 저장소·구성 요소 | `generic-agent`의 실행 준비·조립·실행·결과 저장 경로 |
 | 공개 계약 | Snapshot 조회와 결과 저장 요청·응답을 Agent Resource Manager와, 추론 요청 형식을 AI Gateway와 맞춘다 |
 | 데이터 | 외부 저장소에 이 서비스가 소유하는 데이터는 없다. 재기동 판별용 기록만 Sandbox 안에 남긴다 (GAGENT-BR-01-14) |
-| 실행·배포 | `job_id` 투영 파일, Agent Resource Manager·AI Gateway 주소와 인증 정보를 실행 환경 설정으로 받는다. 재기동 판별 기록은 Worker 컨테이너가 재기동해도 남는 위치에 둔다 |
+| 실행·배포 | `job_id` 투영 파일, Agent Resource Manager·AI Gateway 주소와 인증 정보(LiteLLM 호출 키 포함), 로컬 실행용 LiteLLM 기준 주소(선택)를 실행 환경 설정으로 받는다. 재기동 판별 기록은 Worker 컨테이너가 재기동해도 남는 위치에 둔다 |
 | 영향 없음 | 등록 스키마, Snapshot 조립 절차, AI Gateway의 모델 접근 정책은 바꾸지 않는다 |
 
 #### 품질 요구사항
@@ -344,7 +348,7 @@ sequenceDiagram
 |---|---|---|---|---|
 | GAGENT-NFR-01-01 | 보안·권한 | 모델 호출 | 모델 제공자 자격이 컨테이너 환경변수·파일·Snapshot에 0건 있다 | 실행 환경 변수와 파일, 조회한 Snapshot 내용 점검 |
 | GAGENT-NFR-01-02 | 보안·권한 | 구성 보관 | Snapshot 내용을 담은 파일이 컨테이너 파일 시스템에 0건 남는다 | 정상 종료 1건 후 파일 시스템에서 Snapshot 지시문 문자열 검색 |
-| GAGENT-NFR-01-03 | 보안·권한 | 오류·로그 출력 | Job 범위 단기 토큰과 AI Gateway 인증 정보가 로그와 오류 메시지에 0건 나타난다 | 알아볼 수 있는 시험용 토큰 값을 넣고 오류 경로를 지나게 한 뒤 로그와 오류 직렬화 결과 검색 |
+| GAGENT-NFR-01-03 | 보안·권한 | 오류·로그 출력 | Job 범위 단기 토큰과 AI Gateway 인증 정보(LiteLLM 호출 키 포함)가 로그와 오류 메시지에 0건 나타난다 | 알아볼 수 있는 시험용 토큰 값을 넣고 오류 경로를 지나게 한 뒤 로그와 오류 직렬화 결과 검색 |
 | GAGENT-NFR-01-04 | 성능 | 실행 준비 | Snapshot 조회 요청이 Job당 1건이다 | 실행 1건에서 Snapshot 조회 요청 수 확인 |
 
 #### 수용 기준
@@ -360,6 +364,7 @@ sequenceDiagram
 9. GAGENT-AC-01-09: **Given** Tool 호출 전에 중간 텍스트를 낸 뒤 마지막 응답에서 답을 낸 실행, **When** 전체 답변을 저장하면, **Then** 저장된 전체 답변이 마지막 모델 응답의 텍스트와 같고 중간 텍스트는 `0`건 들어간다.
 10. GAGENT-AC-01-10: **Given** 실행 도중 재기동한 Worker, **When** 같은 `job_id`를 다시 감지하면, **Then** 모델 추론 요청과 전체 답변 저장 요청이 각각 `0`건 추가된다.
 11. GAGENT-AC-01-11: **Given** 전체 답변 저장 전에 만료된 Job 범위 단기 토큰, **When** 저장 요청이 만료로 거부되면, **Then** 토큰 재발급 요청이 `0`건이고 저장 완료 응답도 `0`건이다.
+12. GAGENT-AC-01-12: **Given** 마지막 모델 응답의 텍스트가 비어 있는 실행, **When** 실행이 끝나면, **Then** 모델 재호출이 `0`건이고, `outcome`이 `FAILED`이며 결과 내용이 재질문 안내문과 같은 저장 요청이 `1`건이고, 오류 코드가 `model_error`다.
 
 ---
 
@@ -1283,12 +1288,12 @@ Python Tool 코드는 Sandbox 이미지에서 찾으므로 코드를 얻는 외�
 |---|---|---|---|---|
 | GAGENT-DEP-01 | Message Queue 연동 규격 | Exchange·Queue 이름, Routing Key, 상태 이벤트 필드명과 필수 여부, 재전송 횟수·간격, 전달 완료 판단 기준이 확정되어야 한다 | GAGENT-SPEC-02 | 발행 목적지와 형식을 정할 수 없어 상태 알림을 착수할 수 없다 |
 | GAGENT-DEP-02 | Agent Resource Manager의 Snapshot 조회 인터페이스 | 응답 항목은 설계서 2.3.2와 응답 최상위 `question`·`assistant_message_id`·`thread_id`로 확정했다(인터뷰 확정 사항). 개발 환경에서 호출할 수 있어야 한다 | GAGENT-SPEC-01, GAGENT-SPEC-03, GAGENT-SPEC-04, GAGENT-SPEC-06, GAGENT-SPEC-07 | 실행 구성을 확보할 수 없어 모든 SPEC이 막힌다 |
-| GAGENT-DEP-03 | Agent Resource Manager의 전체 답변 저장 인터페이스 | 요청 항목·멱등 키·사용량은 Governance API §7.3으로 확정했다(인터뷰 확정 사항). `result_hash`는 이번 릴리스에서 `null`로 보낸다(인터뷰 확정 사항). 받는 쪽이 `null`을 받아들이고 개발 환경에서 호출할 수 있어야 한다 | GAGENT-SPEC-01 | 결과를 저장할 수 없어 완료 판정이 불가능하다 |
-| GAGENT-DEP-04 | AI Gateway 연동 규격 | 주소 제공 방식(모델 엔드포인트 정보 조회), 호출 규격(LiteLLM, OpenAI 호환), 인증(없음)은 확정했다(인터뷰 확정 사항). 재시도와 호출 제한 시간은 7장 비차단이다. 개발 환경에서 정보 조회 API와 채팅 모델 엔드포인트를 호출할 수 있어야 한다 | GAGENT-SPEC-01, GAGENT-SPEC-05 | 모델을 호출할 수 없어 실행이 불가능하다 |
+| GAGENT-DEP-03 | Agent Resource Manager의 전체 답변 저장 인터페이스 | 요청 항목·멱등 키·사용량은 Governance API §7.3으로 확정했다(인터뷰 확정 사항). `result_hash`는 이번 릴리스에서 `null`로 보낸다(인터뷰 확정 사항). 받는 쪽이 `null`을 받아들이고, 빈 답변 실패의 `FAILED` 결과 저장(GAGENT-BR-01-16)을 받아들이고 개발 환경에서 호출할 수 있어야 한다 | GAGENT-SPEC-01 | 결과를 저장할 수 없어 완료 판정이 불가능하다 |
+| GAGENT-DEP-04 | AI Gateway 연동 규격 | 주소 제공 방식(모델 엔드포인트 정보 조회. 기본 `proxyBaseUrl`, 로컬은 설정값), 호출 규격(LiteLLM, OpenAI 호환, 모델 값은 `realModels[].modelName`), 인증(호출 키를 실행 환경변수로 받음, MVP 한정 — GAGENT-DEP-17)은 확정했다(인터뷰 확정 사항). 개발 클러스터 Sandbox에서 `proxyBaseUrl`로 호출되는지 확인해야 한다. 재시도와 호출 제한 시간은 7장 비차단이다. 개발 환경에서 정보 조회 API와 채팅 모델 엔드포인트를 호출할 수 있어야 한다 | GAGENT-SPEC-01, GAGENT-SPEC-05 | 모델을 호출할 수 없어 실행이 불가능하다 |
 | GAGENT-DEP-05 | MCP 서버 연결 | Snapshot의 MCP 연결 설정·대상 Tool 정보·이름 매핑(설계서 3.3.3 논리 항목)의 실제 키 이름과 구조가 Snapshot 규격으로 확정되고, Sandbox에서 MCP 목적지로 나가는 통신이 허용되어야 한다 | GAGENT-SPEC-04 | Tool 준비를 할 수 없다. 기본 Tool만으로 실행하는 GAGENT-SPEC-01은 영향이 없다 |
 | GAGENT-DEP-06 | Redis 발행 경로와 이벤트 형식 | 접근 방식(직접 연결)·키(`runtime:events:{job_id}`)·항목 형식(API §6.3 Envelope `1.0`, §6.4 `data`)과 스트리밍 종료 이벤트 종류(`stream.completed`·`stream.failed`)는 확정했다(인터뷰 확정 사항). Redis 접속 정보와 `sandbox_id`의 주입(GAGENT-DEP-08), 개발 환경에서 Redis에 발행할 수 있어야 한다 | GAGENT-SPEC-05 | 실시간 전달을 착수할 수 없다 |
 | GAGENT-DEP-07 | 외부 Checkpoint API 규격 | 저장 경로는 Agent Resource Manager의 S-04(Governance API §7.4), `thread_id`는 Snapshot 응답 최상위, 직렬화는 langgraph-checkpoint 기본 직렬화로 확정했다(인터뷰 확정 사항). 개발 환경에서 S-04를 호출할 수 있어야 한다 | GAGENT-SPEC-06 | 상태 저장을 착수할 수 없다 |
-| GAGENT-DEP-08 | 실행 환경 설정 | `job_id` 투영 파일 경로, Job 범위 단기 토큰의 제공 방식, 외부 목적지 주소의 주입 방식과 아웃바운드 허용 목록이 SandboxTemplate에 반영되어야 한다. 토큰 수명은 Runtime Manager의 최대 실행 시간보다 길어야 한다(GAGENT-BR-01-12). Python Tool 실행에 쓰는 자식 프로세스 생성이 허용되고, Python Tool이 신고한 목적지가 아웃바운드 허용 목록에 반영되어야 한다(GAGENT-BR-07-09·16) | GAGENT-SPEC-01, GAGENT-SPEC-02, GAGENT-SPEC-03, GAGENT-SPEC-04, GAGENT-SPEC-05, GAGENT-SPEC-06, GAGENT-SPEC-07 | 개발 클러스터에서 통합 확인을 할 수 없다 |
+| GAGENT-DEP-08 | 실행 환경 설정 | `job_id` 투영 파일 경로, Job 범위 단기 토큰의 제공 방식, 외부 목적지 주소의 주입 방식과 아웃바운드 허용 목록이 SandboxTemplate에 반영되어야 한다. 토큰 수명은 Runtime Manager의 최대 실행 시간보다 길어야 한다(GAGENT-BR-01-12). Python Tool 실행에 쓰는 자식 프로세스 생성이 허용되고, Python Tool이 신고한 목적지가 아웃바운드 허용 목록에 반영되어야 한다(GAGENT-BR-07-09·16). AI Gateway(LiteLLM) 호출 키의 환경변수 주입이 SandboxTemplate에 반영되어야 한다(GAGENT-DEP-17) | GAGENT-SPEC-01, GAGENT-SPEC-02, GAGENT-SPEC-03, GAGENT-SPEC-04, GAGENT-SPEC-05, GAGENT-SPEC-06, GAGENT-SPEC-07 | 개발 클러스터에서 통합 확인을 할 수 없다 |
 | GAGENT-DEP-09 | 저장소 검증 명령 | 2장의 소스·테스트 배치에 맞춘 pytest 수집 설정과 uv·pytest 기반 검증 명령이 `CLAUDE.md`와 검증 워크플로에 같은 값으로 반영되어야 한다 | GAGENT-SPEC-01, GAGENT-SPEC-02, GAGENT-SPEC-03, GAGENT-SPEC-04, GAGENT-SPEC-05, GAGENT-SPEC-06, GAGENT-SPEC-07 | 첫 Story의 준비 작업을 끝낼 수 없고 검증 자동화를 붙일 수 없다 |
 | GAGENT-DEP-11 | Governance 경계 개정 | 저장소 등록부 `generic-agent` 행의 금지 사항(「Tool 을 직접 호출하지 않는다」), Governance 아키텍처 §2.1, Governance API §8.2가 Sandbox의 MCP 직접 연결(GAGENT-BR-04-06)로 개정되어야 한다 | GAGENT-SPEC-04 | MCP 연결 구현을 착수할 수 없다. 기본 Tool만으로 실행하는 GAGENT-SPEC-01은 영향이 없다 |
 | GAGENT-DEP-12 | Governance 경계 개정 — Event Broker | Governance 아키텍처 §1.1·§2.1(발행 Proxy 경유·Sandbox의 Event Broker 계정 없음)과 저장소 §8.3(발행 Proxy의 순번 확인)을 Sandbox의 Redis 직접 발행(GAGENT-BR-05-04)으로 고치고, API §6.4에 `stream.completed`·`stream.failed`를 더하며, 저장소 §8.3의 `schema_version` `2.0`을 API §6.3의 `1.0`과 맞춰야 한다 | GAGENT-SPEC-05 | Redis 발행 구현을 착수할 수 없다. 전체 답변 저장은 영향이 없다 |
@@ -1297,6 +1302,7 @@ Python Tool 코드는 Sandbox 이미지에서 찾으므로 코드를 얻는 외�
 | GAGENT-DEP-14 | Governance 경계 개정 — Python Tool 실행 | Governance 아키텍처의 Generic Agent Worker 금지 사항(내장 Tool 구현 실행)과 「MVP에서 Worker가 실행하는 것은 Agent 루프뿐이다」, 개요 §6(`code`·`builtin` Tool 실행은 범위 밖), API §8(`code`·`builtin`은 실행 시점에 `tool_error`), 저장소 등록부 `generic-agent` 행의 금지 사항(「Tool 을 직접 호출하지 않는다」)이 Sandbox 이미지에 포함한 Python Tool의 분리 프로세스 실행(GAGENT-BR-07-01·09·12)으로 개정되어야 한다. 저장소 문서 §9.3의 `builtin` 「MVP에서는 등록만 받고 실행하지 않는다」, 개요 §6의 「Sandbox 이미지에 구현을 포함하지 않는다」와 API §8 `builtin` 행의 「그 자리에서 직접 호출」도 함께 고친다. 개요 §7 미결 5(격리 경계)에는 분리된 프로세스 실행(GAGENT-BR-07-09)을 반영한다 | GAGENT-SPEC-07 | Python Tool 실행 구현을 착수할 수 없다. 나머지 SPEC은 영향이 없다 |
 | GAGENT-DEP-15 | Snapshot의 Python Tool 항목 규격 | `kind` 값은 `builtin`, 구현 참조는 `impl`에 `모듈경로:함수이름`으로 정했다(인터뷰 확정 사항). Snapshot 응답에서 이 두 값을 담는 실제 키 이름과 구조가 Snapshot 규격으로 확정되어야 한다 | GAGENT-SPEC-07, GAGENT-SPEC-04 | Python Tool 항목을 가려내거나 코드를 찾을 수 없다. GAGENT-SPEC-04의 미지원 Tool 판정(GAGENT-BR-04-08)도 이 값을 쓴다 |
 | GAGENT-DEP-16 | Python Tool 코드의 이미지 포함 | 7장의 코드를 둘 저장소가 정해지고, 그 코드와 필요한 패키지를 Sandbox 이미지에 넣는 빌드 방식이 정해져야 한다 | GAGENT-SPEC-07 | 개발 클러스터에서 Python Tool을 실행해 확인할 수 없다. 코드 찾기와 실행은 시험용 코드로 구현·시험할 수 있다 |
+| GAGENT-DEP-17 | Governance 경계 예외 — AI Gateway 호출 키 | Governance 아키텍처 §2.1·개요 §5.5(모델 API 키를 Sandbox에 넣지 않는다), 2장 확정된 기술 제약(Sandbox 자격은 Job 범위 단기 토큰 하나), 저장소 등록부 `runtime-manager` 행 금지 사항에 대해, MVP 동안 AI Gateway(LiteLLM) 호출 키를 Sandbox 실행 환경변수로 두는 예외가 Governance `constitution/reference/exceptions.md`에 기록되어야 한다. 기록 내용은 대상 저장소, 이유, 재검토 시점(AI Gateway의 키 처리 대행 또는 Sandbox 전용 제한 키 발급 시)이다 | GAGENT-SPEC-01, GAGENT-SPEC-05 | PL 결정(2026-09-29)으로 MVP 구현은 진행한다. 기록 전까지는 Governance 규칙과 어긋난 상태로 남는다 |
 
 - 호환성: 첫 구현이므로 기존 호출자 호환 요구는 없다. Snapshot 항목명이 기존 플랫폼과 다르면(`connector_type`, `content`) 입력 변환 단계에서 맞춘다 (설계서 3.3.3·4.2.1).
 - 전환·복구: GAGENT-DEP-07이 늦어지면 GAGENT-SPEC-06만 뒤로 미룬다. GAGENT-DEP-05가 늦어지면 GAGENT-SPEC-04만 미루고 나머지는 기본 Tool로 실행한다. GAGENT-DEP-06이 늦어지면 GAGENT-SPEC-05만 미룬다. GAGENT-DEP-14·15·16이 늦어지면 GAGENT-SPEC-07만 미루고 나머지는 기본 Tool과 MCP Tool로 실행한다.
@@ -1317,12 +1323,16 @@ Python Tool 코드는 Sandbox 이미지에서 찾으므로 코드를 얻는 외�
 | 전체 답변 저장과 Checkpoint 저장의 재시도 횟수·간격·타임아웃은 무엇인가. 설계서 2.6.2·2.7.3이 정해진 정책을 따른다고만 적었다 | Agent Resource Manager 담당 | GAGENT-SPEC-01 착수 후 | 비차단 | GAGENT-SPEC-01, GAGENT-EDGE-01-08, GAGENT-SPEC-06, GAGENT-BR-06-08 | 재시도 값만 나중에 조정한다 |
 | Checkpoint 보존 24시간을 적용할 것인가와 만료 기준 시점은 언제인가. 설계서 2.6.1이 외부 저장 정책에서 확정한다고 남겼고, Governance 저장소 §13은 대화 보존 180일과의 차이로 같은 thread의 후속 질문이 24시간을 넘길 때의 처리를 미결로 남겼다 | 외부 저장 정책 담당 | GAGENT-SPEC-06 착수 후 | 비차단 | GAGENT-SPEC-06, GAGENT-BR-06-07 | 보존 값만 나중에 조정한다 |
 | Governance가 이 모듈에 기대하는 요청 첨부 전달, 실행 이력 기록, 중간 저장본 저장, 출처 수집과 인용 표기, 산출 파일 업로드를 이번 릴리스에서 빼는 것에 맞춰 Governance 문서를 고칠 것인가 | 기술 책임자 | GAGENT-SPEC-05 착수 전 | 비차단 | GAGENT-SPEC-01, GAGENT-SPEC-05 | Orchestrator의 재접속 화면 복원·이력 조회·출처 표시에 빈 곳이 남는다 |
+| 모델 엔드포인트의 실제 모델이 여러 개일 때 어느 `modelName`을 쓸 것인가 | AI Gateway 담당 | 실제 모델이 2개 이상인 엔드포인트를 쓰기 전 | 비차단 | GAGENT-SPEC-01, GAGENT-BR-01-15 | 결정 전까지 실제 모델이 1개가 아니면 모델 호출 구성 실패로 끝난다 |
+| AI Gateway가 호출 키 처리를 대행하거나 Sandbox 전용 제한 키를 발급할 수 있는가 | AI Gateway 담당·PL | MVP 이후 | 비차단 | GAGENT-DEP-17, GAGENT-BR-01-04 | 예외 상태가 계속되고, Sandbox에 권한이 넓은 키가 남는다 |
+| 빈 답변 실패의 `FAILED` 결과 저장을 Agent Resource Manager가 받는가, `termination.detail`의 형식은 무엇인가(코드·사유 두 필드로 충분한가) | Agent Resource Manager 담당 | GAGENT-SPEC-01 착수 후 | 비차단 | GAGENT-SPEC-01, GAGENT-BR-01-16, GAGENT-DEP-03 | 받지 않으면 빈 답변 실패의 안내문이 저장되지 않는다. 세부 정보 형식만 나중에 맞춘다 |
+| 결과가 `FAILED`일 때 요청자 화면이 저장된 안내문(`answer`)을 보여 주는가 | Agent Execution Orchestrator 담당 | GAGENT-SPEC-01 착수 후 | 비차단 | GAGENT-SPEC-01, GAGENT-BR-01-16 | 보여 주지 않으면 요청자는 재질문 안내 없이 실패만 본다 |
 
 ## 8. 요구사항 추적표
 
 | SPEC | 요구사항·규칙 | 예외·품질 | 수용 기준 | 성공 기준 | 의존·연결 |
 |---|---|---|---|---|---|
-| GAGENT-SPEC-01 | GAGENT-FR-01-01~22, GAGENT-BR-01-01~14 | GAGENT-EDGE-01-01~13, GAGENT-NFR-01-01~04 | GAGENT-AC-01-01~11 | GAGENT-SC-01, GAGENT-SC-03 | GAGENT-IF-01-01~04, GAGENT-DEP-02, GAGENT-DEP-03, GAGENT-DEP-04, GAGENT-DEP-08 |
+| GAGENT-SPEC-01 | GAGENT-FR-01-01~22, GAGENT-BR-01-01~16 | GAGENT-EDGE-01-01~15, GAGENT-NFR-01-01~04 | GAGENT-AC-01-01~12 | GAGENT-SC-01, GAGENT-SC-03 | GAGENT-IF-01-01~04, GAGENT-DEP-02, GAGENT-DEP-03, GAGENT-DEP-04, GAGENT-DEP-08, GAGENT-DEP-17 |
 | GAGENT-SPEC-02 | GAGENT-FR-02-01~13, GAGENT-BR-02-01~07 | GAGENT-EDGE-02-01~08, GAGENT-NFR-02-01~03 | GAGENT-AC-02-01~09 | GAGENT-SC-02 | GAGENT-IF-02-01~02, GAGENT-DEP-01 |
 | GAGENT-SPEC-03 | GAGENT-FR-03-01~11, GAGENT-BR-03-01~07 | GAGENT-EDGE-03-01~07, GAGENT-NFR-03-01~02 | GAGENT-AC-03-01~06 | GAGENT-SC-01, GAGENT-SC-03 | GAGENT-IF-03-01, GAGENT-DEP-02, GAGENT-DEP-10 |
 | GAGENT-SPEC-04 | GAGENT-FR-04-01~11, GAGENT-BR-04-01~08 | GAGENT-EDGE-04-01~09, GAGENT-NFR-04-01~03 | GAGENT-AC-04-01~08 | GAGENT-SC-01, GAGENT-SC-03 | GAGENT-IF-04-01, GAGENT-DEP-02, GAGENT-DEP-05, GAGENT-DEP-11, GAGENT-DEP-15 |
@@ -1381,7 +1391,7 @@ Python Tool 코드는 Sandbox 이미지에서 찾으므로 코드를 얻는 외�
 - 전체 답변 저장 요청은 Governance API §7.3을 그대로 따르고, `message_id`는 Snapshot의 `assistant_message_id`를 쓴다. GAGENT-IF-01-04, GAGENT-DEP-03에 반영했다. `result_hash`는 이번 릴리스에서 계산하지 않고 `null`로 보내기로 해 7장 차단 항목에서 뺐다. 저장소 문서 §3.6의 NOT NULL과 API §7.3의 대조는 Agent Resource Manager 쪽이 맞춰야 한다.
 - 사용량은 전체 답변 저장 요청의 `usage`로 보내고, 모르는 값(미확인 호출이 있을 때의 입력·출력 토큰, 측정 기준이 없는 `iterations`)은 `null`로 보낸다. GAGENT-BR-01-13과 GAGENT-SPEC-01 기능 범위에 반영하고 7장 비차단 항목에서 뺐다.
 - Governance API §7.2의 S-03 상태 확인·토큰 재발급은 쓰지 않고 GAGENT-BR-01-12를 유지한다. Governance API §7.2 갱신이 필요하다.
-- Snapshot의 모델 식별자는 AI Gateway의 모델 엔드포인트 식별자다. Worker가 실행 준비 때 모델 엔드포인트 정보를 조회해 호출 주소를 얻고, LiteLLM(OpenAI 호환, 별도 인증 없음)에 `model_id`를 그대로 모델 값으로 보낸다. GAGENT-IF-01-03, GAGENT-DEP-04에 반영했다. 정보 조회 API 주소는 실행 환경 설정으로 받고 문서에 적지 않는다.
+- Snapshot의 모델 식별자는 AI Gateway의 모델 엔드포인트 식별자다. Worker가 실행 준비 때 모델 엔드포인트 정보를 조회해 호출 주소를 얻고, LiteLLM(OpenAI 호환, 별도 인증 없음)에 `model_id`를 그대로 모델 값으로 보낸다. GAGENT-IF-01-03, GAGENT-DEP-04에 반영했다. 정보 조회 API 주소는 실행 환경 설정으로 받고 문서에 적지 않는다. — 인증과 모델 값은 2026-09-29·30 답으로 바뀌었다(아래).
 
 2026-09-28
 
@@ -1413,3 +1423,12 @@ Python Tool 코드는 Sandbox 이미지에서 찾으므로 코드를 얻는 외�
 - 실행 진입점은 `impl`의 함수 이름으로만 정하고 기본 이름을 두지 않으며, 동기·비동기 함수를 모두 허용한다 — 작성 요청자 답변(권장안 채택). GAGENT-BR-07-14, GAGENT-FR-07-17, GAGENT-AC-07-16에 반영.
 - 버전은 모듈의 `TOOL_VERSION` 상수와 Snapshot의 Tool 버전을 비교하고, 없거나 다르면 Tool 준비 실패로 처리한다 — 작성 요청자 답변(권장안 채택). GAGENT-BR-07-02, GAGENT-FR-07-16, GAGENT-EDGE-07-01과 필요한 데이터와 상태에 반영하고 7장 비차단 항목에서 뺐다.
 - Python Tool은 호출마다 환경 변수로 알리는 임시 디렉터리에만 파일을 쓰고 호출이 끝나면 지운다. 외부 네트워크는 기본적으로 쓰지 않고, 필요하면 등록 때 목적지를 신고해 허용 목록에 올린다 — 작성 요청자 답변(권장안 채택). GAGENT-BR-07-15, GAGENT-BR-07-16, GAGENT-FR-07-18, GAGENT-AC-07-17, GAGENT-DEP-08과 기술 영향 범위에 반영.
+
+2026-09-29~30
+
+- 이하 Jira 명확화(GAF-429 · GAF-355)에서 받은 답이다.
+- MVP 동안만 AI Gateway(LiteLLM) 호출 키를 Sandbox 실행 환경변수로 받는다 — PL 결정. 2장 확정된 기술 제약, GAGENT-BR-01-04, GAGENT-IF-01-03, GAGENT-NFR-01-03, GAGENT-DEP-04, GAGENT-DEP-08에 반영했다. Governance 예외 기록은 GAGENT-DEP-17로 남겼다.
+- LiteLLM에 보내는 모델 값은 조회 응답의 `realModels[].modelName`이다 — PL 결정. 개발 LiteLLM 확인 호출에서 `modelName`만 정상 응답했고 `data.name`·`data.id`는 200과 포털 HTML이 왔다. GAGENT-IF-01-03, GAGENT-DEP-04, GAGENT-BR-01-15에 반영했다. AI Gateway 담당이 추가로 확인한다.
+- 호출 기준 주소는 조회 응답의 `proxyBaseUrl`이 기본이고, 로컬 실행에서는 실행 환경 설정값으로 덮어쓴다 — AI Gateway 담당 안내. GAGENT-IF-01-03, GAGENT-DEP-04, SPEC-01 기술 영향 범위에 반영했다.
+- 실제 모델은 1개로 가정하고 0개·2개 이상은 모델 호출 구성 실패로 한다 — 작성 요청자 답변. GAGENT-BR-01-15, GAGENT-EDGE-01-14와 7장 비차단 항목에 반영했다.
+- 마지막 모델 응답의 텍스트가 비어 있으면(공백만 있는 경우 포함) 재시도하지 않고 실패로 처리하되, 요청자에게 재질문을 안내한다 — PL 결정. 안내문 「답변을 만들지 못했습니다. 질문을 조금 바꿔서 다시 입력해 주세요.」를 `FAILED` 결과로 저장하고 오류 코드는 `model_error`, 세부 사유는 `empty_answer`로 한다 — 작성 요청자 답변. GAGENT-BR-01-05, GAGENT-BR-01-16, GAGENT-FR-01-16, GAGENT-FR-01-20, GAGENT-EDGE-01-15, GAGENT-AC-01-12, GAGENT-DEP-03과 7장 비차단 항목에 반영했다.
