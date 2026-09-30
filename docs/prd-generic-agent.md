@@ -292,7 +292,7 @@ sequenceDiagram
 - GAGENT-BR-01-13: 실행 단위로 집계한 사용량은 전체 답변 저장 요청의 `usage`로 전달한다. 미확인 호출이 1건이라도 있으면 입력·출력 토큰은 `null`로 보내고, 측정 기준이 정해지지 않은 `iterations`도 `null`로 보낸다 (설계서 2.5.3, 인터뷰 확정 사항).
 - GAGENT-BR-01-14: 감지한 `job_id`와 종료 이벤트 발행 사실(GAGENT-BR-02-07)은 Worker 재기동 뒤에도 남는 기록으로 둔다. 이 기록에는 Snapshot 내용을 담지 않는다(GAGENT-FR-01-19).
 - GAGENT-BR-01-15: 모델 엔드포인트 정보 조회 응답의 실제 모델은 정확히 1개여야 한다. 조회 실패, `status` 거짓, JSON이 아닌 응답, 엔드포인트 비활성, 실제 모델 0개 또는 2개 이상은 모델 호출 구성 실패로 처리한다. 성공 상태 코드만으로 성공을 판정하지 않는다 — 없는 모델 값에도 200과 HTML이 올 수 있다 (인터뷰 확정 사항).
-- GAGENT-BR-01-16: 마지막 모델 응답의 텍스트가 비어 있으면(공백만 있는 경우 포함) 모델을 다시 호출하지 않고 실행을 실패로 처리한다. 전체 답변 저장 요청은 `outcome`을 `FAILED`로, 결과 내용을 재질문 안내문 「답변을 만들지 못했습니다. 질문을 조금 바꿔서 다시 입력해 주세요.」로, 종료 사유를 `error`로, 오류 코드를 `model_error`로, 세부 사유를 `empty_answer`로 보낸다. 모델 응답의 종료 사유는 로그에 남기고 모델 텍스트는 남기지 않는다. 안내 문구는 서비스 한 곳에 두고, 오류 세부 정보의 형식은 Agent Resource Manager 확인 뒤 확정한다 (Governance API §11.2, 인터뷰 확정 사항).
+- GAGENT-BR-01-16: 마지막 모델 응답의 텍스트가 비어 있으면(공백만 있는 경우 포함) 모델을 다시 호출하지 않고 실행을 실패로 처리한다. 전체 답변 저장 요청은 `outcome`을 `FAILED`로, 결과 내용을 재질문 안내문 「답변을 만들지 못했습니다. 질문을 조금 바꿔서 다시 입력해 주세요.」로, 종료 사유를 `error`로, 오류 코드를 `model_error`로, 세부 사유를 `empty_answer`로 보낸다. 모델 응답의 종료 사유는 로그에 남기고 모델 텍스트는 남기지 않는다. 안내 문구는 서비스 한 곳에 둔다. 오류 세부 정보는 `{code, message}` 형식이고, 결과 조회는 `FAILED`일 때도 안내문을 함께 돌려주며 대화 이력에는 `INCOMPLETE`로 반영된다 (Governance API §11.2, Agent Resource Manager 확인, 인터뷰 확정 사항).
 
 #### 예외와 경계 조건
 
@@ -328,9 +328,9 @@ sequenceDiagram
 | ID | 방향 | 상대 서비스·시스템 | 필요한 기능·사건·정보 | 기대 결과 | 실패 시 기대 동작 | 상세 자료 |
 |---|---|---|---|---|---|---|
 | GAGENT-IF-01-01 | 사용 | Runtime Manager(Kubernetes Downward API 경유) | 할당된 Sandbox에 `job_id` 전달 | 실행할 Job을 식별한다 | 파일이 비어 있으면 실행하지 않고 감시를 계속한다 | Governance API §7.7·§7.8 |
-| GAGENT-IF-01-02 | 사용 | Agent Resource Manager | `job_id` 기준 Snapshot 조회 | 실행 구성과 질문 1건을 받는다 | Deep Agent를 조립하지 않고 준비 실패로 끝낸다 | 설계서 2.3.2와 응답 최상위 `question`·`assistant_message_id`·`thread_id` (인터뷰 확정 사항). Governance API §7.1 갱신 필요 |
+| GAGENT-IF-01-02 | 사용 | Agent Resource Manager | `job_id` 기준 Snapshot 조회 | 실행 구성과 질문 1건을 받는다 | Deep Agent를 조립하지 않고 준비 실패로 끝낸다 | 설계서 2.3.2와 응답 최상위 `question`·`assistant_message_id`·`thread_id` (인터뷰 확정 사항). 키 경로는 `agent.agent_id`·`agent.agent_version`·`agent.instruction`·`agent.limits`, 최상위 `model.model_id`·`model.options`, 최상위 `assistant_message_id`다(Agent Resource Manager 확인). `assistant_message_id`는 Agent Execution Orchestrator가 Snapshot 기록(C-03) 때 담고 Runtime Manager의 `execution_context.message_ids.assistant`와 같은 값이다. `model.model_id`는 AI Gateway 모델 엔드포인트 식별자다(Agent Execution Orchestrator 확인). Governance API §7.1 갱신 필요 |
 | GAGENT-IF-01-03 | 사용 | AI Gateway | 추론 요청, 스트리밍 응답, Tool 호출 형식, 사용량 | 지정한 모델의 응답과 사용량을 받는다 | 재시도 후 복구할 수 없으면 실행을 실패로 끝낸다 | 모델 엔드포인트 정보 조회(`GET ?id=<model_id>`, 응답 `{status, data}`)로 활성 여부·실제 모델·기본 호출 주소(`proxyBaseUrl`)를 얻고, LiteLLM(OpenAI 호환)에 실제 모델의 `realModels[].modelName`을 모델 값으로 보낸다. 로컬 실행에서는 기준 주소를 실행 환경 설정값으로 덮어쓴다. 호출 키는 실행 환경변수로 받는다(MVP 한정, GAGENT-DEP-17) (인터뷰 확정 사항). 주소와 키는 이 문서에 적지 않는다 |
-| GAGENT-IF-01-04 | 사용 | Agent Resource Manager | 전체 답변 저장 | 저장 완료 응답을 받는다 | 재시도 한도를 넘기면 실행을 실패로 끝낸다 | Governance API §7.3. `message_id`는 Snapshot의 `assistant_message_id` (인터뷰 확정 사항). `result_hash`는 이번 릴리스에서 계산하지 않고 `null`로 보낸다 (인터뷰 확정 사항) |
+| GAGENT-IF-01-04 | 사용 | Agent Resource Manager | 전체 답변 저장 | 저장 완료 응답을 받는다 | 재시도 한도를 넘기면 실행을 실패로 끝낸다 | Governance API §7.3. `message_id`는 Snapshot의 `assistant_message_id` (인터뷰 확정 사항). `result_hash`는 sha256으로 보낸다. 계산 입력과 형식은 Agent Resource Manager 확인 중이다(7장). 받는 쪽은 `message_id`가 Snapshot 값과 다르거나 멱등 키의 `job_id`가 경로와 다르면 422, 같은 멱등 키에 다른 본문이면 409로 거부하고, 같은 키·같은 본문이면 기존 응답을 돌려준다. `through_sequence` `0`과 `usage.tokens` `null`을 받는다(Agent Resource Manager 확인) |
 
 #### 기술 영향 범위
 
@@ -1287,8 +1287,8 @@ Python Tool 코드는 Sandbox 이미지에서 찾으므로 코드를 얻는 외�
 | ID | 의존 대상·제약 | 필요한 조건 | 영향받는 SPEC | 미충족 시 영향 |
 |---|---|---|---|---|
 | GAGENT-DEP-01 | Message Queue 연동 규격 | Exchange·Queue 이름, Routing Key, 상태 이벤트 필드명과 필수 여부, 재전송 횟수·간격, 전달 완료 판단 기준이 확정되어야 한다 | GAGENT-SPEC-02 | 발행 목적지와 형식을 정할 수 없어 상태 알림을 착수할 수 없다 |
-| GAGENT-DEP-02 | Agent Resource Manager의 Snapshot 조회 인터페이스 | 응답 항목은 설계서 2.3.2와 응답 최상위 `question`·`assistant_message_id`·`thread_id`로 확정했다(인터뷰 확정 사항). 개발 환경에서 호출할 수 있어야 한다 | GAGENT-SPEC-01, GAGENT-SPEC-03, GAGENT-SPEC-04, GAGENT-SPEC-06, GAGENT-SPEC-07 | 실행 구성을 확보할 수 없어 모든 SPEC이 막힌다 |
-| GAGENT-DEP-03 | Agent Resource Manager의 전체 답변 저장 인터페이스 | 요청 항목·멱등 키·사용량은 Governance API §7.3으로 확정했다(인터뷰 확정 사항). `result_hash`는 이번 릴리스에서 `null`로 보낸다(인터뷰 확정 사항). 받는 쪽이 `null`을 받아들이고, 빈 답변 실패의 `FAILED` 결과 저장(GAGENT-BR-01-16)을 받아들이고 개발 환경에서 호출할 수 있어야 한다 | GAGENT-SPEC-01 | 결과를 저장할 수 없어 완료 판정이 불가능하다 |
+| GAGENT-DEP-02 | Agent Resource Manager의 Snapshot 조회 인터페이스 | 응답 항목은 설계서 2.3.2와 응답 최상위 `question`·`assistant_message_id`·`thread_id`로 확정했다(인터뷰 확정 사항). 키 경로는 GAGENT-IF-01-02대로 Agent Resource Manager가 확인했고, `assistant_message_id`는 Agent Execution Orchestrator가 Snapshot 기록(C-03)에 담는다. 개발 환경에서 호출할 수 있어야 한다 | GAGENT-SPEC-01, GAGENT-SPEC-03, GAGENT-SPEC-04, GAGENT-SPEC-06, GAGENT-SPEC-07 | 실행 구성을 확보할 수 없어 모든 SPEC이 막힌다 |
+| GAGENT-DEP-03 | Agent Resource Manager의 전체 답변 저장 인터페이스 | 요청 항목·멱등 키·사용량은 Governance API §7.3으로 확정했다(인터뷰 확정 사항). `result_hash`는 sha256으로 보내며 계산 입력과 형식을 Agent Resource Manager와 맞춰야 한다(7장). 빈 답변 실패의 `FAILED` 결과 저장(GAGENT-BR-01-16), `through_sequence` `0`, `usage.tokens` `null`은 받는 쪽이 받아들인다(Agent Resource Manager 확인). 개발 환경에서 호출할 수 있어야 한다 | GAGENT-SPEC-01 | 결과를 저장할 수 없어 완료 판정이 불가능하다 |
 | GAGENT-DEP-04 | AI Gateway 연동 규격 | 주소 제공 방식(모델 엔드포인트 정보 조회. 기본 `proxyBaseUrl`, 로컬은 설정값), 호출 규격(LiteLLM, OpenAI 호환, 모델 값은 `realModels[].modelName`), 인증(호출 키를 실행 환경변수로 받음, MVP 한정 — GAGENT-DEP-17)은 확정했다(인터뷰 확정 사항). 개발 클러스터 Sandbox에서 `proxyBaseUrl`로 호출되는지 확인해야 한다. 재시도와 호출 제한 시간은 7장 비차단이다. 개발 환경에서 정보 조회 API와 채팅 모델 엔드포인트를 호출할 수 있어야 한다 | GAGENT-SPEC-01, GAGENT-SPEC-05 | 모델을 호출할 수 없어 실행이 불가능하다 |
 | GAGENT-DEP-05 | MCP 서버 연결 | Snapshot의 MCP 연결 설정·대상 Tool 정보·이름 매핑(설계서 3.3.3 논리 항목)의 실제 키 이름과 구조가 Snapshot 규격으로 확정되고, Sandbox에서 MCP 목적지로 나가는 통신이 허용되어야 한다 | GAGENT-SPEC-04 | Tool 준비를 할 수 없다. 기본 Tool만으로 실행하는 GAGENT-SPEC-01은 영향이 없다 |
 | GAGENT-DEP-06 | Redis 발행 경로와 이벤트 형식 | 접근 방식(직접 연결)·키(`runtime:events:{job_id}`)·항목 형식(API §6.3 Envelope `1.0`, §6.4 `data`)과 스트리밍 종료 이벤트 종류(`stream.completed`·`stream.failed`)는 확정했다(인터뷰 확정 사항). Redis 접속 정보와 `sandbox_id`의 주입(GAGENT-DEP-08), 개발 환경에서 Redis에 발행할 수 있어야 한다 | GAGENT-SPEC-05 | 실시간 전달을 착수할 수 없다 |
@@ -1325,8 +1325,8 @@ Python Tool 코드는 Sandbox 이미지에서 찾으므로 코드를 얻는 외�
 | Governance가 이 모듈에 기대하는 요청 첨부 전달, 실행 이력 기록, 중간 저장본 저장, 출처 수집과 인용 표기, 산출 파일 업로드를 이번 릴리스에서 빼는 것에 맞춰 Governance 문서를 고칠 것인가 | 기술 책임자 | GAGENT-SPEC-05 착수 전 | 비차단 | GAGENT-SPEC-01, GAGENT-SPEC-05 | Orchestrator의 재접속 화면 복원·이력 조회·출처 표시에 빈 곳이 남는다 |
 | 모델 엔드포인트의 실제 모델이 여러 개일 때 어느 `modelName`을 쓸 것인가 | AI Gateway 담당 | 실제 모델이 2개 이상인 엔드포인트를 쓰기 전 | 비차단 | GAGENT-SPEC-01, GAGENT-BR-01-15 | 결정 전까지 실제 모델이 1개가 아니면 모델 호출 구성 실패로 끝난다 |
 | AI Gateway가 호출 키 처리를 대행하거나 Sandbox 전용 제한 키를 발급할 수 있는가 | AI Gateway 담당·PL | MVP 이후 | 비차단 | GAGENT-DEP-17, GAGENT-BR-01-04 | 예외 상태가 계속되고, Sandbox에 권한이 넓은 키가 남는다 |
-| 빈 답변 실패의 `FAILED` 결과 저장을 Agent Resource Manager가 받는가, `termination.detail`의 형식은 무엇인가(코드·사유 두 필드로 충분한가) | Agent Resource Manager 담당 | GAGENT-SPEC-01 착수 후 | 비차단 | GAGENT-SPEC-01, GAGENT-BR-01-16, GAGENT-DEP-03 | 받지 않으면 빈 답변 실패의 안내문이 저장되지 않는다. 세부 정보 형식만 나중에 맞춘다 |
-| 결과가 `FAILED`일 때 요청자 화면이 저장된 안내문(`answer`)을 보여 주는가 | Agent Execution Orchestrator 담당 | GAGENT-SPEC-01 착수 후 | 비차단 | GAGENT-SPEC-01, GAGENT-BR-01-16 | 보여 주지 않으면 요청자는 재질문 안내 없이 실패만 본다 |
+| `result_hash`의 계산 입력과 형식은 무엇인가. Agent Resource Manager는 받은 본문으로 다시 계산해 다르면 422로 거부한다(ARM-FR-04-04, Governance API §7.3). Governance 저장소 §3.6은 열만, API §7.3은 예시 값 `sha256-...`만 두었고 계산 입력은 적지 않았다. 저장소 §3.10의 `sha256:` 규칙은 Skill 본문 해시다 | Agent Resource Manager 담당 | GAGENT-SPEC-01 통합 확인 전 | 차단 | GAGENT-SPEC-01, GAGENT-IF-01-04, GAGENT-DEP-03 | 계산이 다르면 모든 전체 답변 저장이 422로 거부된다 |
+| 결과가 `FAILED`일 때 요청자 화면이 저장된 안내문(`answer`)을 보여 주는가. 결과 조회(C-06)는 `FAILED`일 때도 `answer`를 돌려준다(Agent Resource Manager 확인) | Agent Execution Orchestrator 담당 | GAGENT-SPEC-01 착수 후 | 비차단 | GAGENT-SPEC-01, GAGENT-BR-01-16 | 보여 주지 않으면 요청자는 재질문 안내 없이 실패만 본다 |
 
 ## 8. 요구사항 추적표
 
@@ -1388,7 +1388,7 @@ Python Tool 코드는 Sandbox 이미지에서 찾으므로 코드를 얻는 외�
 - 소스는 `src/generic_agent/`, 테스트는 Governance 개발 규약대로 `test/<대상과 같은 구조>/<파일>.test.py`에 두고 pytest 수집 설정을 이 이름에 맞춘다 — 작성 요청자 답변(권장안이 아닌 두 번째 안 채택). 2장 저장소와 코드 구조, GAGENT-DEP-09에 반영.
 - 이하 Jira 명확화(GAF-355, 2026-09-23)에서 받은 답이다.
 - Snapshot 조회 응답 항목은 설계서 2.3.2를 쓰고, `question`·`assistant_message_id`는 응답 최상위에 둔다. GAGENT-IF-01-02, GAGENT-DEP-02에 반영하고 7장 차단 항목에서 뺐다. Governance API §7.1 갱신이 필요하다.
-- 전체 답변 저장 요청은 Governance API §7.3을 그대로 따르고, `message_id`는 Snapshot의 `assistant_message_id`를 쓴다. GAGENT-IF-01-04, GAGENT-DEP-03에 반영했다. `result_hash`는 이번 릴리스에서 계산하지 않고 `null`로 보내기로 해 7장 차단 항목에서 뺐다. 저장소 문서 §3.6의 NOT NULL과 API §7.3의 대조는 Agent Resource Manager 쪽이 맞춰야 한다.
+- 전체 답변 저장 요청은 Governance API §7.3을 그대로 따르고, `message_id`는 Snapshot의 `assistant_message_id`를 쓴다. GAGENT-IF-01-04, GAGENT-DEP-03에 반영했다. `result_hash`는 이번 릴리스에서 계산하지 않고 `null`로 보내기로 해 7장 차단 항목에서 뺐다. 저장소 문서 §3.6의 NOT NULL과 API §7.3의 대조는 Agent Resource Manager 쪽이 맞춰야 한다. — `result_hash`는 2026-09-30 Agent Resource Manager 답변으로 sha256으로 바뀌었다(아래).
 - 사용량은 전체 답변 저장 요청의 `usage`로 보내고, 모르는 값(미확인 호출이 있을 때의 입력·출력 토큰, 측정 기준이 없는 `iterations`)은 `null`로 보낸다. GAGENT-BR-01-13과 GAGENT-SPEC-01 기능 범위에 반영하고 7장 비차단 항목에서 뺐다.
 - Governance API §7.2의 S-03 상태 확인·토큰 재발급은 쓰지 않고 GAGENT-BR-01-12를 유지한다. Governance API §7.2 갱신이 필요하다.
 - Snapshot의 모델 식별자는 AI Gateway의 모델 엔드포인트 식별자다. Worker가 실행 준비 때 모델 엔드포인트 정보를 조회해 호출 주소를 얻고, LiteLLM(OpenAI 호환, 별도 인증 없음)에 `model_id`를 그대로 모델 값으로 보낸다. GAGENT-IF-01-03, GAGENT-DEP-04에 반영했다. 정보 조회 API 주소는 실행 환경 설정으로 받고 문서에 적지 않는다. — 인증과 모델 값은 2026-09-29·30 답으로 바뀌었다(아래).
@@ -1432,3 +1432,9 @@ Python Tool 코드는 Sandbox 이미지에서 찾으므로 코드를 얻는 외�
 - 호출 기준 주소는 조회 응답의 `proxyBaseUrl`이 기본이고, 로컬 실행에서는 실행 환경 설정값으로 덮어쓴다 — AI Gateway 담당 안내. GAGENT-IF-01-03, GAGENT-DEP-04, SPEC-01 기술 영향 범위에 반영했다.
 - 실제 모델은 1개로 가정하고 0개·2개 이상은 모델 호출 구성 실패로 한다 — 작성 요청자 답변. GAGENT-BR-01-15, GAGENT-EDGE-01-14와 7장 비차단 항목에 반영했다.
 - 마지막 모델 응답의 텍스트가 비어 있으면(공백만 있는 경우 포함) 재시도하지 않고 실패로 처리하되, 요청자에게 재질문을 안내한다 — PL 결정. 안내문 「답변을 만들지 못했습니다. 질문을 조금 바꿔서 다시 입력해 주세요.」를 `FAILED` 결과로 저장하고 오류 코드는 `model_error`, 세부 사유는 `empty_answer`로 한다 — 작성 요청자 답변. GAGENT-BR-01-05, GAGENT-BR-01-16, GAGENT-FR-01-16, GAGENT-FR-01-20, GAGENT-EDGE-01-15, GAGENT-AC-01-12, GAGENT-DEP-03과 7장 비차단 항목에 반영했다.
+- 이하 Agent Resource Manager · Agent Execution Orchestrator 담당 확인(2026-09-30)이다.
+- Snapshot 조회 응답의 키 경로는 `agent.agent_id`·`agent.agent_version`·`agent.instruction`·`agent.limits`, 최상위 `model.model_id`·`model.options`, 최상위 `assistant_message_id`다. 응답에 `agent_config` 키는 없고, 지시문·실행 제한이 빠진 Snapshot은 기록(C-03) 단계에서 거부된다 — Agent Resource Manager 답변. GAGENT-IF-01-02, GAGENT-DEP-02에 반영했다.
+- `assistant_message_id`는 Agent Execution Orchestrator가 Snapshot 기록(C-03) 때 담고, Runtime Manager의 `execution_context.message_ids.assistant`와 같은 값이다. 전체 답변 저장의 `result.message_id`가 이 값과 다르면 422다 — Agent Execution Orchestrator · Agent Resource Manager 답변. GAGENT-IF-01-02, GAGENT-IF-01-04, GAGENT-DEP-02에 반영했다.
+- `model.model_id`는 AI Gateway 모델 엔드포인트 식별자다 — Agent Execution Orchestrator 답변. GAGENT-IF-01-02에 반영했다.
+- `result_hash`는 `null`이 아니라 sha256으로 보낸다 — Agent Resource Manager 답변. 계산 입력과 형식은 확인 중이라 7장 차단 항목으로 올렸다. GAGENT-IF-01-04, GAGENT-DEP-03에 반영했다.
+- 빈 답변 실패의 `FAILED` 결과 저장을 받고, `termination.detail`은 `{code, message}`, 결과 조회는 `FAILED`일 때도 안내문을 돌려주며 대화 이력에는 `INCOMPLETE`로 반영된다. `through_sequence`는 검증하지 않고 `0`도 저장하며, `usage.tokens` `null`을 허용한다. `revision`은 멱등 키에서 읽고, 키의 `job_id`가 경로와 다르면 422, 같은 키·같은 본문이면 기존 응답, 다른 본문이면 409다 — Agent Resource Manager 답변. GAGENT-BR-01-16, GAGENT-IF-01-04, GAGENT-DEP-03에 반영하고 7장 비차단 항목 1건을 뺐다.
